@@ -1,0 +1,78 @@
+
+import streamlit as st
+import uuid
+from components.supabase_client import supabase
+
+st.set_page_config(
+    page_title="MargDrishti | Live Detection",
+    page_icon="🛣️",
+    layout="wide"
+)
+
+st.markdown("""
+<div style="
+    background:linear-gradient(120deg,#F4E8DE,#F3D5C4);
+    padding:28px;
+    border-radius:20px;
+    margin-bottom:20px;
+">
+    <h1 style="color:#594337;margin:0;">
+        🚧 Live Pothole Detection
+    </h1>
+    <p style="color:#765B4C;margin-top:10px;">
+        AI-powered road damage identification and monitoring
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+st.caption("Upload road images or videos for AI-powered pothole detection.")
+
+st.divider()
+
+st.subheader("Upload Road Media")
+
+uploaded_file = st.file_uploader(
+    "Choose an image or video",
+    type=["jpg", "jpeg", "png", "webp", "mp4", "mov", "webm"]
+)
+
+if uploaded_file is not None:
+
+    file_type = uploaded_file.type
+
+    if file_type.startswith("image/"):
+        st.image(
+            uploaded_file,
+            caption="Uploaded Road Image",
+            use_container_width=True
+        )
+
+    elif file_type.startswith("video/"):
+        st.video(uploaded_file)
+
+    file_extension = uploaded_file.name.split(".")[-1].lower()
+    file_name = f"{uuid.uuid4()}.{file_extension}"
+
+    try:
+        supabase.storage.from_("pothole-images").upload(
+            path=file_name,
+            file=uploaded_file.getvalue(),
+            file_options={
+                "content-type": file_type
+            }
+        )
+
+        public_url = supabase.storage.from_("pothole-images").get_public_url(
+            file_name
+        )
+
+        st.success("File uploaded successfully to Supabase!")
+
+        st.write("File URL:")
+        st.code(public_url)
+
+    except Exception as e:
+        st.error(f"Upload failed: {e}")
+
+else:
+    st.info("Upload a road image or video to get started.")
