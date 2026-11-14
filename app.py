@@ -1,27 +1,33 @@
 
 import streamlit as st
-from components.supabase_client import (
-    create_auth_client,
-    get_authenticated_client
-)
+from textwrap import dedent
+
+# =====================================================
+# PAGE CONFIGURATION
+# =====================================================
 
 st.set_page_config(
-    page_title="MargDrishti",
+    page_title="MargDrishti | Home",
     page_icon="🛣️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
+
+# =====================================================
+# CUSTOM THEME
+# =====================================================
 
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif;
+    font-family: 'Inter', sans-serif !important;
 }
 
 .stApp {
-    background: linear-gradient(135deg, #07111f, #0c1b2e, #101d31);
-    color: #e8f1fa;
+    background: #FAF7F2;
+    color: #33271F;
 }
 
 .block-container {
@@ -30,248 +36,213 @@ html, body, [class*="css"] {
 }
 
 section[data-testid="stSidebar"] {
-    background: rgba(12, 27, 46, 0.95);
-    border-right: 1px solid rgba(255,255,255,0.08);
+    background: #F1E8DE;
+    border-right: 1px solid #E5D6C7;
 }
 
 section[data-testid="stSidebar"] * {
-    color: #e8f1fa;
+    color: #594638;
 }
 
-h1, h2, h3 {
-    color: #f4f8ff !important;
+h1, h2, h3, h4 {
+    color: #33271F !important;
     font-weight: 700 !important;
 }
 
 p, label {
-    color: #aebfd2;
-}
-
-.glass-card {
-    background: rgba(255,255,255,0.055);
-    border: 1px solid rgba(255,255,255,0.10);
-    border-radius: 20px;
-    padding: 25px;
-    backdrop-filter: blur(16px);
-    min-height: 145px;
-}
-
-.glass-card h3 {
-    font-size: 19px;
-    margin-bottom: 12px;
-}
-
-.glass-card p {
-    font-size: 14px;
-    line-height: 1.7;
+    color: #51443A;
 }
 
 .hero {
-    background: linear-gradient(120deg, rgba(17,190,190,0.16), rgba(50,110,180,0.10));
-    border: 1px solid rgba(65,220,220,0.20);
+    background: linear-gradient(120deg, #FFFFFF, #EAF5F3);
+    border: 1px solid #D8E9E4;
     border-radius: 24px;
-    padding: 35px;
-    margin: 15px 0 25px 0;
+    padding: 38px;
+    margin: 14px 0 28px 0;
+    box-shadow: 0 8px 25px rgba(70,100,90,0.07);
 }
 
 .hero-label {
-    color: #42d6d0;
-    letter-spacing: 3px;
+    color: #087F76;
+    letter-spacing: 2px;
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 800;
 }
 
 .hero-title {
     font-size: 38px;
     font-weight: 800;
-    color: #f4f8ff;
+    color: #33271F;
     margin: 12px 0;
 }
 
 .hero-text {
-    color: #afc1d4;
-    font-size: 15px;
+    color: #51443A;
+    font-size: 16px;
     line-height: 1.8;
 }
 
-div.stButton > button {
-    background: linear-gradient(90deg, #12b8b5, #268bd2);
-    color: white;
+.module-card {
+    background: #FFFFFF;
+    border: 1px solid #E5D6C7;
+    border-radius: 20px;
+    padding: 25px;
+    min-height: 175px;
+    box-shadow: 0 5px 18px rgba(80,60,40,0.06);
+    transition: all 0.25s ease;
+}
+
+.module-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 25px rgba(80,60,40,0.12);
+}
+
+.module-card h3 {
+    color: #33271F;
+    font-size: 20px;
+    margin-bottom: 12px;
+}
+
+.module-card p {
+    color: #51443A;
+    line-height: 1.7;
+    font-size: 14px;
+}
+
+.stButton > button {
+    background: linear-gradient(90deg, #159B91, #268BD2);
+    color: white !important;
     border: none;
     border-radius: 12px;
-    padding: 10px 22px;
+    padding: 10px 20px;
     font-weight: 600;
 }
 
-div.stButton > button:hover {
-    border: 1px solid #4ce4df;
-    color: white;
-}
-
-div[data-testid="stForm"] {
-    background: rgba(255,255,255,0.045);
-    border: 1px solid rgba(255,255,255,0.10);
-    border-radius: 18px;
-    padding: 25px;
-}
-
-input {
-    background: #14263b !important;
-    color: white !important;
-}
-
 hr {
-    border-color: rgba(255,255,255,0.10);
+    border-color: #E5D6C7;
+}
+
+.footer {
+    text-align: center;
+    color: #75675B;
+    font-size: 13px;
+    padding: 20px;
 }
 </style>
 """, unsafe_allow_html=True)
 
-if "admin_access_token" not in st.session_state:
-    st.session_state.admin_access_token = None
 
-if "admin_refresh_token" not in st.session_state:
-    st.session_state.admin_refresh_token = None
+# =====================================================
+# HERO SECTION
+# =====================================================
 
-if "admin_email" not in st.session_state:
-    st.session_state.admin_email = None
-
-if st.session_state.admin_access_token:
-    try:
-        admin_client = get_authenticated_client(
-            st.session_state.admin_access_token,
-            st.session_state.admin_refresh_token
-        )
-
-        user = admin_client.auth.get_user()
-        user_id = user.user.id
-
-        result = (
-            admin_client.table("staff_members")
-            .select("role")
-            .eq("user_id", user_id)
-            .limit(1)
-            .execute()
-        )
-
-        if result.data and result.data[0]["role"] == "admin":
-            st.session_state.admin_role = "admin"
-
-            st.success(
-                f"Logged in as Admin: {st.session_state.admin_email}"
-            )
-
-            if st.button("Logout"):
-                st.session_state.admin_access_token = None
-                st.session_state.admin_refresh_token = None
-                st.session_state.admin_email = None
-                st.session_state.admin_role = None
-                st.rerun()
-
-        else:
-            st.error("This account does not have Admin access.")
-            st.session_state.admin_access_token = None
-            st.session_state.admin_refresh_token = None
-            st.session_state.admin_email = None
-            st.rerun()
-
-    except Exception:
-        st.session_state.admin_access_token = None
-        st.session_state.admin_refresh_token = None
-        st.session_state.admin_email = None
-        st.session_state.admin_role = None
-        st.warning("Your session expired. Please log in again.")
-
-st.markdown("""
+hero_html = dedent("""
 <div class="hero">
     <div class="hero-label">SMART ROAD INFRASTRUCTURE</div>
-    <div class="hero-title">🛣️ MargDrishti</div>
+    <div class="hero-title">Welcome to MargDrishti</div>
     <div class="hero-text">
-        AI-Powered Road Monitoring and Pothole Detection System.
-        Monitor road conditions, identify potholes and support
-        smarter infrastructure management.
+        AI-powered pothole detection and smart road monitoring.
+        Identify road damage, review saved detections, monitor locations,
+        and explore analytics from one place.
     </div>
 </div>
-""", unsafe_allow_html=True)
+""").strip()
 
-if not st.session_state.admin_access_token:
-    st.markdown("## 🔐 Admin Login")
-    st.caption("Sign in with your authorized administrator account.")
+st.markdown(hero_html, unsafe_allow_html=True)
 
-    with st.form("admin_login_form"):
-        email = st.text_input("Admin Email")
-        password = st.text_input("Password", type="password")
-        login_button = st.form_submit_button("Login")
 
-    if login_button:
-        if not email or not password:
-            st.warning("Please enter both email and password.")
-        else:
-            try:
-                auth_client = create_auth_client()
+# =====================================================
+# PLATFORM INTRODUCTION
+# =====================================================
 
-                response = auth_client.auth.sign_in_with_password({
-                    "email": email,
-                    "password": password
-                })
+st.markdown("## Explore the Platform")
 
-                if response.session and response.user:
-                    user_id = response.user.id
+st.write(
+    "MargDrishti provides intelligent tools for road monitoring, "
+    "pothole detection, reporting and analysis."
+)
 
-                    result = (
-                        auth_client.table("staff_members")
-                        .select("role")
-                        .eq("user_id", user_id)
-                        .limit(1)
-                        .execute()
-                    )
+st.write("")
 
-                    if result.data and result.data[0]["role"] == "admin":
-                        st.session_state.admin_access_token = (
-                            response.session.access_token
-                        )
-                        st.session_state.admin_refresh_token = (
-                            response.session.refresh_token
-                        )
-                        st.session_state.admin_email = response.user.email
-                        st.session_state.admin_role = "admin"
 
-                        st.success("Admin login successful!")
-                        st.rerun()
-                    else:
-                        auth_client.auth.sign_out()
-                        st.error("This account is not registered as an Admin.")
+# =====================================================
+# PLATFORM CARDS
+# =====================================================
 
-            except Exception as e:
-                st.error("Login failed. Check your email and password.")
-
-st.markdown("## Platform Modules")
-
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2, gap="large")
 
 with col1:
-    st.markdown("""
-    <div class="glass-card">
-        <h3>🚧 Pothole Detection</h3>
-        <p>Detect road damage using AI-powered YOLO technology.</p>
+    st.markdown(dedent("""
+    <div class="module-card">
+        <h3>📊 Dashboard</h3>
+        <p>
+            View total pothole detections, severity information,
+            GPS-mapped locations, detection images and processed
+            YOLO videos.
+        </p>
     </div>
-    """, unsafe_allow_html=True)
+    """).strip(), unsafe_allow_html=True)
 
 with col2:
-    st.markdown("""
-    <div class="glass-card">
-        <h3>📍 Road Monitoring</h3>
-        <p>View reported potholes and their geographical locations.</p>
+    st.markdown(dedent("""
+    <div class="module-card">
+        <h3>📷 Live Detection</h3>
+        <p>
+            Upload road images and use the trained YOLO model
+            to identify potholes and review detection confidence.
+        </p>
     </div>
-    """, unsafe_allow_html=True)
+    """).strip(), unsafe_allow_html=True)
+
+st.write("")
+
+col3, col4 = st.columns(2, gap="large")
 
 with col3:
-    st.markdown("""
-    <div class="glass-card">
-        <h3>📊 Road Analytics</h3>
-        <p>Understand road conditions through detection statistics.</p>
+    st.markdown(dedent("""
+    <div class="module-card">
+        <h3>📍 Map View</h3>
+        <p>
+            Explore pothole reports and their geographic
+            locations using available GPS information.
+        </p>
     </div>
-    """, unsafe_allow_html=True)
+    """).strip(), unsafe_allow_html=True)
+
+with col4:
+    st.markdown(dedent("""
+    <div class="module-card">
+        <h3>📈 Analytics & Reports</h3>
+        <p>
+            Review road condition information, detection history,
+            severity distribution and report summaries.
+        </p>
+    </div>
+    """).strip(), unsafe_allow_html=True)
+
+
+# =====================================================
+# PROJECT INFORMATION
+# =====================================================
 
 st.divider()
 
-st.caption("MargDrishti | AI-Powered Smart Road Monitoring")
+st.markdown("## About MargDrishti")
+
+st.write(
+    "MargDrishti is an AI-powered smart road monitoring system "
+    "designed to identify potholes using computer vision and "
+    "YOLO-based object detection."
+)
+
+st.write(
+    "The platform supports detection review, image records, "
+    "geographic monitoring and road condition analysis."
+)
+
+st.divider()
+
+st.markdown(
+    '<div class="footer">MARGDRISHTI | AI-POWERED SMART ROAD MONITORING</div>',
+    unsafe_allow_html=True
+)

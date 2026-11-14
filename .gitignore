@@ -1,16 +1,40 @@
-__pycache__/
-*.py[cod]
+# Python environment
 .venv/
 venv/
 env/
-.streamlit/secrets.toml
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Environment variables and secrets
 .env
 .env.*
+!.env.example
+
+# IDE files
 .vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Temporary files
 .DS_Store
 Thumbs.db
-*.log
-*.tmp
+
+# Training outputs
+runs/
+wandb/
+
+# Python test cache
 .pytest_cache/
-.coverage
-htmlcov/
+
+# Temporary detection outputs
+results/live_detections/
+
+Live_Detection_backup.txt

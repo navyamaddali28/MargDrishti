@@ -1,255 +1,524 @@
-import uuid
+
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageOps
 
-from components.supabase_client import supabase
 
+# =====================================================
+# CONFIGURATION
+# =====================================================
+
+ROOT = Path(__file__).resolve().parents[1]
+
+MODEL_PATH = ROOT / "models" / "best.pt"
+RESULTS_DIR = ROOT / "results" / "live_detections"
+
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 st.set_page_config(
     page_title="MargDrishti | Live Detection",
-    page_icon="🛣️",
-    layout="wide",
+    page_icon="🚧",
+    layout="wide"
 )
 
-st.markdown(
-    """
-    <div style="
-        background:linear-gradient(120deg,#F4E8DE,#F3D5C4);
-        padding:28px;
-        border-radius:20px;
-        margin-bottom:20px;
-    ">
-        <h1 style="color:#594337;margin:0;">🚧 Live Pothole Detection</h1>
-        <p style="color:#765B4C;margin-top:10px;">
-            Capture or upload road media for AI review
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
 
-project_root = Path(__file__).resolve().parent.parent
-model_candidates = (
-    project_root / "models" / "best.pt",
-    project_root / "best.pt",
-)
-model_path = next((path for path in model_candidates if path.is_file()), None)
+# =====================================================
+# CUSTOM DESIGN
+# =====================================================
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+html, body, [class*="css"] {
+    font-family: Inter, sans-serif;
+}
+
+.stApp {
+    background: #FAF7F2;
+    color: #33271F;
+}
+
+.block-container {
+    padding: 2rem 3rem;
+    max-width: 1500px;
+}
+
+section[data-testid="stSidebar"] {
+    background: #F1E8DE;
+}
+
+section[data-testid="stSidebar"] * {
+    color: #594638;
+}
+
+h1, h2, h3 {
+    color: #33271F !important;
+}
+
+div.stButton > button {
+    background: linear-gradient(90deg,#159B91,#268BD2);
+    color: white !important;
+    border: none;
+    border-radius: 12px;
+    font-weight: 600;
+    padding: 10px 20px;
+}
+
+[data-testid="stMetric"] {
+    background: white;
+    border: 1px solid #E5D6C7;
+    border-radius: 16px;
+    padding: 18px;
+}
+
+.hero {
+    background: linear-gradient(120deg,#FFFFFF,#EAF5F3);
+    border: 1px solid #D8E9E4;
+    border-radius: 22px;
+    padding: 28px;
+    margin-bottom: 24px;
+}
+
+.hero-title {
+    font-size: 32px;
+    font-weight: 800;
+    color: #33271F;
+}
+
+.hero-text {
+    color: #51443A;
+    font-size: 15px;
+}
+</style>
+""", unsafe_allow_html=True)
 
 
-@st.cache_resource(show_spinner="Loading your pothole model...")
-def load_model(weights_path: str):
+# =====================================================
+# LOAD YOLO MODEL
+# =====================================================
+
+@st.cache_resource
+def load_yolo_model(model_path):
+
     from ultralytics import YOLO
 
-    return YOLO(weights_path)
+    return YOLO(str(model_path))
 
 
-model = None
-if model_path is None:
-    st.warning(
-        "I couldn't find best.pt. Put it in the project's models folder at "
-        "models/best.pt to enable AI detection."
-    )
-else:
-    try:
-        model = load_model(str(model_path))
-        st.success(f"Loaded model: {model_path.name}")
-    except Exception as error:
-        st.warning(
-            "The model file is present, but it could not be loaded. Install the "
-            "Ultralytics package in this project's virtual environment, then restart "
-            "Streamlit. If it still fails, ask your friend which YOLO package/version "
-            "was used to train best.pt."
-        )
-        st.code(r".\.venv\Scripts\python.exe -m pip install ultralytics")
-        st.code(str(error))
+# =====================================================
+# PAGE HEADER
+# =====================================================
 
-st.caption(
-    "Camera mode takes a photo and runs the model on that photo. It does not show a "
-    "continuous live-video feed. Uploaded videos can be stored, but video detection "
-    "isn't connected on this page yet."
+st.markdown("""
+<div class="hero">
+    <div class="hero-title">🚧 Live Pothole Detection</div>
+    <div class="hero-text">
+        Upload a road image and identify potholes using
+        the trained YOLO11s detection model.
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# =====================================================
+# MODEL VALIDATION
+# =====================================================
+
+if not MODEL_PATH.is_file():
+
+    st.error(f"Model file not found: {MODEL_PATH}")
+    st.stop()
+
+try:
+
+    model = load_yolo_model(str(MODEL_PATH))
+
+except Exception as error:
+
+    st.error(f"Unable to load YOLO model: {error}")
+    st.stop()
+
+
+with st.expander("View Model Information"):
+
+    st.write("Model:", MODEL_PATH.name)
+    st.write("Model path:", str(MODEL_PATH))
+    st.write("Model classes:", model.names)
+
+
+# =====================================================
+# IMAGE UPLOAD
+# =====================================================
+
+st.markdown("## 1. Upload Road Image")
+
+uploaded_file = st.file_uploader(
+    "Choose a road image",
+    type=["jpg", "jpeg", "png", "webp"]
 )
 
-st.divider()
-st.subheader("Capture or Upload Road Media")
 
-source_choice = st.radio(
-    "Choose how to add road media",
-    ["Take a photo", "Upload a file"],
-    horizontal=True,
-)
+# =====================================================
+# CONFIDENCE SETTINGS
+# =====================================================
 
-media = None
-if source_choice == "Take a photo":
-    media = st.camera_input("Take a road photo")
-else:
-    media = st.file_uploader(
-        "Choose an image or video",
-        type=["jpg", "jpeg", "png", "webp", "mp4", "mov", "webm"],
-    )
-
-media_type = ""
-image_bytes = None
-detections = []
-
-confidence_threshold = st.slider(
-    "Minimum detection confidence",
-    min_value=0.10,
+confidence = st.slider(
+    "Detection Confidence Threshold",
+    min_value=0.01,
     max_value=0.90,
-    value=0.25,
-    step=0.05,
-    help="Lower this to show more possible potholes; raise it to show fewer, more certain results.",
+    value=0.01,
+    step=0.01
 )
 
-if media is not None:
-    media_type = getattr(media, "type", "") or "application/octet-stream"
-    image_bytes = media.getvalue()
 
-    if media_type.startswith("image/"):
-        original_image = Image.open(BytesIO(image_bytes)).convert("RGB")
+# =====================================================
+# IMAGE PROCESSING
+# =====================================================
 
-        if model is not None:
-            try:
-                with st.spinner("Checking the image for potholes..."):
-                    result = model.predict(
-                        source=original_image,
-                        conf=confidence_threshold,
-                        verbose=False,
-                    )[0]
+if uploaded_file is not None:
 
-                # Ultralytics returns the plotted image in BGR order; Streamlit
-                # expects RGB.
-                annotated_bgr = result.plot()
-                annotated_rgb = annotated_bgr[:, :, ::-1]
-                st.image(
-                    annotated_rgb,
-                    caption="AI detection result",
-                    use_container_width=True,
-                )
+    try:
 
-                if result.boxes is not None:
-                    for box in result.boxes:
-                        class_id = int(box.cls[0].item())
-                        score = float(box.conf[0].item())
-                        class_names = result.names
-                        if isinstance(class_names, dict):
-                            class_name = class_names.get(class_id, str(class_id))
-                        else:
-                            class_name = class_names[class_id]
-                        detections.append(
-                            {
-                                "Object": str(class_name),
-                                "Confidence": f"{score * 100:.1f}%",
-                                "confidence_value": score,
-                            }
-                        )
-
-                if detections:
-                    st.success(f"Found {len(detections)} object(s). Review the boxes above.")
-                    st.table(
-                        [
-                            {"Object": item["Object"], "Confidence": item["Confidence"]}
-                            for item in detections
-                        ]
-                    )
-                else:
-                    st.info("No objects were detected at the current confidence setting.")
-            except Exception as error:
-                st.error(f"Model prediction failed: {error}")
-                st.image(
-                    original_image,
-                    caption="Original image",
-                    use_container_width=True,
-                )
-        else:
-            st.image(
-                original_image,
-                caption="Selected road image",
-                use_container_width=True,
+        original_image = ImageOps.exif_transpose(
+            Image.open(
+                BytesIO(uploaded_file.getvalue())
             )
-            st.info("The image is ready to upload. AI results need a working model setup.")
+        ).convert("RGB")
 
-    elif media_type.startswith("video/"):
-        st.video(media)
-        st.info("This video can be uploaded to Storage. YOLO video processing isn't connected yet.")
-    else:
-        st.error("This file type is not supported. Choose an image or video.")
+    except Exception as error:
 
-st.divider()
-st.subheader("Save to Supabase")
-st.caption(
-    "Enter the location and severity after reviewing the image. A database detection "
-    "row is attempted only when the model found at least one object in an image."
-)
+        st.error(f"Unable to open image: {error}")
+        st.stop()
 
-with st.form("save_media_form"):
-    location = st.text_input("Location", placeholder="Example: Benz Circle")
-    severity = st.selectbox("Severity", ["Low", "Medium", "High", "Critical"])
-    save_button = st.form_submit_button(
-        "Upload media and save detections",
-        type="primary",
-        disabled=media is None,
+    st.image(
+        original_image,
+        caption="Uploaded Road Image",
+        use_container_width=True
     )
 
-if save_button and media is not None:
-    if not location.strip():
-        st.warning("Enter the location before saving.")
-    elif not image_bytes:
-        st.warning("The selected media is empty. Please select it again.")
-    else:
-        extension = Path(getattr(media, "name", "road-media")).suffix.lower()
-        if not extension:
-            extension = ".jpg" if media_type.startswith("image/") else ".mp4"
-        storage_path = f"{uuid.uuid4()}{extension}"
+    # =================================================
+    # RUN DETECTION
+    # =================================================
+
+    if st.button(
+        "🔍 Detect Potholes",
+        type="primary",
+        use_container_width=True
+    ):
 
         try:
-            supabase.storage.from_("pothole-images").upload(
-                path=storage_path,
-                file=image_bytes,
-                file_options={"content-type": media_type},
-            )
-            public_url = supabase.storage.from_("pothole-images").get_public_url(
-                storage_path
-            )
-        except Exception as error:
-            st.error(f"Media upload failed: {error}")
-        else:
-            st.success("Media uploaded to the pothole-images bucket.")
-            st.write("Public media URL:")
-            st.code(public_url)
 
-            if media_type.startswith("image/") and detections:
-                detection_record = {
-                    "image_url": public_url,
-                    "location": location.strip(),
-                    "severity": severity,
-                    "confidence": max(
-                        item["confidence_value"] for item in detections
-                    ),
-                }
-                try:
-                    supabase.table("pothole_detections").insert(
-                        detection_record
-                    ).execute()
-                except Exception as error:
-                    st.warning(
-                        "The image is uploaded, but Supabase did not accept a row in "
-                        "pothole_detections. Check that the table has image_url, "
-                        "location, severity, and confidence columns, and that its Row "
-                        "Level Security policies allow this app to insert."
+            with st.spinner(
+                "YOLO is analysing your road image..."
+            ):
+
+                results = model.predict(
+                    source=np.asarray(original_image),
+                    conf=confidence,
+                    imgsz=1280,
+                    iou=0.45,
+                    augment=True,
+                    max_det=100,
+                    verbose=False
+                )
+
+                result = results[0]
+
+            # =================================================
+            # RAW DETECTION INFORMATION
+            # =================================================
+
+            boxes = result.boxes
+            names = model.names
+
+            raw_count = 0 if boxes is None else len(boxes)
+
+            st.divider()
+
+            st.markdown("## 2. Detection Results")
+
+            st.metric(
+                "Total Raw YOLO Detections",
+                raw_count
+            )
+
+            pothole_indices = []
+            records = []
+            scores = []
+
+            # =================================================
+            # FILTER POTHOLE CLASS
+            # =================================================
+
+            if boxes is not None and len(boxes) > 0:
+
+                for index, box in enumerate(boxes):
+
+                    class_id = int(box.cls[0].item())
+
+                    if isinstance(names, dict):
+                        class_name = names.get(
+                            class_id,
+                            str(class_id)
+                        )
+                    else:
+                        class_name = names[class_id]
+
+                    score = float(box.conf[0].item())
+
+                    # Display raw detection information
+                    st.write(
+                        f"Class: {class_name} | "
+                        f"Confidence: {score * 100:.2f}%"
                     )
-                    st.caption(f"Supabase response: {error}")
+
+                    if (
+                        str(class_name).strip().lower()
+                        == "pothole"
+                    ):
+
+                        pothole_indices.append(index)
+                        scores.append(score)
+
+                        coordinates = box.xyxy[0].tolist()
+
+                        records.append({
+                            "Object": "Pothole",
+                            "Confidence (%)": round(
+                                score * 100, 2
+                            ),
+                            "X1": round(coordinates[0], 1),
+                            "Y1": round(coordinates[1], 1),
+                            "X2": round(coordinates[2], 1),
+                            "Y2": round(coordinates[3], 1)
+                        })
+
+            # =================================================
+            # NO DETECTION
+            # =================================================
+
+            if len(pothole_indices) == 0:
+
+                st.warning(
+                    "No potholes detected by the trained model."
+                )
+
+                if raw_count == 0:
+
+                    st.info(
+                        "YOLO returned zero bounding boxes. "
+                        "The model may need further training "
+                        "with similar pothole images."
+                    )
+
                 else:
-                    st.success("The detected image record was saved to pothole_detections.")
-            elif media_type.startswith("image/"):
-                st.info(
-                    "The image was uploaded. No detection row was created because the "
-                    "model did not find any objects."
+
+                    st.info(
+                        "YOLO detected objects, but none matched "
+                        "the pothole class."
+                    )
+
+                st.image(
+                    original_image,
+                    caption="Image analysed by YOLO",
+                    use_container_width=True
                 )
+
+            # =================================================
+            # POTHOLE DETECTED
+            # =================================================
+
             else:
-                st.info(
-                    "The video was uploaded to Storage. No detection row was created "
-                    "because video inference isn't connected yet."
+
+                annotated_image = result.plot()[:, :, ::-1]
+
+                detection_df = pd.DataFrame(records)
+
+                st.success(
+                    f"{len(pothole_indices)} pothole(s) detected!"
                 )
+
+                # Display images
+                col1, col2 = st.columns(2)
+
+                with col1:
+
+                    st.image(
+                        original_image,
+                        caption="Original Road Image",
+                        use_container_width=True
+                    )
+
+                with col2:
+
+                    st.image(
+                        annotated_image,
+                        caption="Detected Potholes",
+                        use_container_width=True
+                    )
+
+                # =================================================
+                # METRICS
+                # =================================================
+
+                metric1, metric2, metric3 = st.columns(3)
+
+                metric1.metric(
+                    "Potholes Detected",
+                    len(pothole_indices)
+                )
+
+                metric2.metric(
+                    "Average Confidence",
+                    f"{np.mean(scores) * 100:.2f}%"
+                )
+
+                metric3.metric(
+                    "Highest Confidence",
+                    f"{max(scores) * 100:.2f}%"
+                )
+
+                # =================================================
+                # DETECTION DETAILS
+                # =================================================
+
+                st.markdown("### Detection Details")
+
+                st.dataframe(
+                    detection_df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                # =================================================
+                # SAVE RESULTS
+                # =================================================
+
+                timestamp = datetime.now().strftime(
+                    "%Y%m%d_%H%M%S"
+                )
+
+                image_name = (
+                    f"pothole_detection_{timestamp}.jpg"
+                )
+
+                csv_name = (
+                    f"pothole_detection_{timestamp}.csv"
+                )
+
+                image_path = RESULTS_DIR / image_name
+                csv_path = RESULTS_DIR / csv_name
+
+                Image.fromarray(
+                    annotated_image
+                ).save(
+                    image_path,
+                    format="JPEG",
+                    quality=95
+                )
+
+                detection_df.to_csv(
+                    csv_path,
+                    index=False
+                )
+
+                st.success(
+                    "Detection results saved successfully!"
+                )
+
+                # =================================================
+                # DOWNLOAD IMAGE AND CSV
+                # =================================================
+
+                image_buffer = BytesIO()
+
+                Image.fromarray(
+                    annotated_image
+                ).save(
+                    image_buffer,
+                    format="JPEG",
+                    quality=95
+                )
+
+                download_col1, download_col2 = st.columns(2)
+
+                with download_col1:
+
+                    st.download_button(
+                        "⬇️ Download Annotated Image",
+                        data=image_buffer.getvalue(),
+                        file_name=image_name,
+                        mime="image/jpeg",
+                        use_container_width=True
+                    )
+
+                with download_col2:
+
+                    st.download_button(
+                        "⬇️ Download Detection Report",
+                        data=detection_df.to_csv(
+                            index=False
+                        ).encode("utf-8"),
+                        file_name=csv_name,
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+
+        except Exception as error:
+
+            st.error(
+                f"Detection failed: {error}"
+            )
+
+
+# =====================================================
+# SAVED DETECTION GALLERY
+# =====================================================
+
+st.divider()
+
+st.markdown("## 🖼️ Saved Detection Gallery")
+
+saved_images = sorted(
+    RESULTS_DIR.glob("pothole_detection_*.jpg"),
+    key=lambda path: path.stat().st_mtime,
+    reverse=True
+)
+
+if saved_images:
+
+    columns = st.columns(3)
+
+    for index, image_path in enumerate(saved_images[:9]):
+
+        with columns[index % 3]:
+
+            st.image(
+                str(image_path),
+                use_container_width=True
+            )
+
+            st.caption(image_path.name)
+
+else:
+
+    st.info(
+        "Your detected pothole images will appear here."
+    )
+
+
+# =====================================================
+# FOOTER
+# =====================================================
+
+st.divider()
+
+st.caption(
+    "MARGDRISHTI | YOLO11s-BASED POTHOLE DETECTION"
+)
